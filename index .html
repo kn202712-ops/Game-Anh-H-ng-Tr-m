@@ -228,7 +228,7 @@ h1.title{font-size:12cqw;line-height:1.05;text-align:center;color:#ffd24a;text-s
     <div id="phname"></div><div id="timer"></div><div id="ticker"></div>
   </div>
   <div id="arena"></div><div id="vfeed"></div>
-  <div id="mic"><div id="emoBar"></div><button id="micBtn" class="mb off" title="Báo cho cả phòng biết bạn đang bật mic">🎤</button><button id="emoBtn" class="mb" title="Gửi icon">😀</button><button id="cardBtn" class="mb" title="Thẻ nhân vật đã mua">🎴</button></div>
+  <div id="mic"><div id="emoBar"></div><button id="micBtn" class="mb off" title="Báo cho cả phòng biết bạn đang bật mic">🎤</button><button id="emoBtn" class="mb" title="Gửi icon">😀</button><button id="rosterBtn" class="mb" title="Danh sách nhân vật có mặt trong trận">📜</button><button id="cardBtn" class="mb" title="Thẻ nhân vật đã mua">🎴</button></div>
   <div id="exitbar"><b>Đồng ý thoát trận?</b><button id="exYes">✔ Đồng ý</button><button id="exNo">✖ Từ chối</button></div>
 </section>
 
@@ -712,11 +712,34 @@ function startGame(name,n,onlyDan,opt={}){
 }
 function deal(){
   const need=G.n+2;
-  const cards=shuffle(REQ.concat(shuffle(DAN.slice()).slice(0,need-REQ.length)));
+  // Bot nhận nhân vật khác (ngẫu nhiên, không trùng); người chơi thật chỉ nhận Dân và phải tự mua thẻ để đổi
+  const specials=shuffle(CH.filter(c=>!isDefault(c.id)).map(c=>c.id));
+  const dans=shuffle(DAN.slice());
+  const slots=shuffle(Array.from({length:need},(_,i)=>i));
+  const cards=new Array(need);
+  slots.forEach((pos,k)=>{
+    if(k<REQ.length){cards[pos]=REQ[k];return}
+    const isBot=pos<G.n&&!G.pl[pos].human;
+    cards[pos]=(isBot&&!G.onlyDan&&specials.length)?specials.pop():dans.pop();
+  });
   G.pl.forEach((p,i)=>{p.role=cards[i];p.up=false;p.sacrificed=false;p.alive=true;p.noCov=false;p.skipVote=false});
   G.grave=[cards[need-2],cards[need-1]].map(r=>({role:r,up:false,sealed:false}));
   G.round++;
 }
+function rosterOf(g){
+  const l=g.pl.map(p=>p.role).concat((g.grave||[]).map(x=>x.role)).filter(Boolean);
+  const order=CH.map(c=>c.id);
+  return l.sort((x,y)=>order.indexOf(x)-order.indexOf(y));
+}
+$('#rosterBtn').onclick=async()=>{
+  if(!G||G.dead)return;
+  const l=G.roster||(G.mirror?[]:rosterOf(G));
+  if(!l.length){toast('Chưa có danh sách – chờ chia bài');return}
+  const dan=l.filter(isDan).length,rest=l.filter(r=>!isDan(r));
+  const html=`<h3>📜 NHÂN VẬT CÓ MẶT TRONG TRẬN</h3><div class="small">${l.length} lá (gồm 2 lá dưới Mộ) – chỉ biết có mặt, không biết ai giữ. Chạm để xem thông tin.</div><div class="opts">${rest.map(r=>`<div class="gcard" data-v="${r}">${cardEl('ch',r,true)}</div>`).join('')}${dan?`<div class="gcard" data-v="dan">${cardEl('ch','dan',true)}<div class="small">× ${dan}</div></div>`:''}</div><div class="opts"><button data-v="x">Đóng</button></div>`;
+  const r=await modal(html);
+  if(r&&r!=='x'&&CHB[r])showZoom('ch',r,true,'Có mặt trong trận');
+};
 function assignLinh(){const l=shuffle(G.pl.map((_,i)=>i+1));G.pl.forEach((p,i)=>p.linh=l[i])}
 
 async function gameLoop(){
@@ -1326,7 +1349,7 @@ function publish(){
     n:g.n,phase:g.phase,rem:Math.max(0,(g.pEnd||0)-Date.now()),phtxt:$('#phname').textContent||'',
     tick:g.log[g.log.length-1]||'',
     pl:g.pl.map(p=>({id:p.id,uid:p.uid||'',name:p.name,human:!!p.human,pts:p.pts,alive:!!p.alive,up:!!(p.up&&p.role),sac:!!p.sacrificed,linh:p.linh,flash:p.flash||'',skip:!!p.skipVote,role:(p.up&&p.role)?p.role:''})),
-    grave:g.grave.map(x=>({up:!!x.up,role:x.up?x.role:''})),
+    grave:g.grave.map(x=>({up:!!x.up,role:x.up?x.role:''})),roster:rosterOf(g),
     vt:g.vt?{on:!!g.vt.on,votes:g.vt.votes||{},feed:g.vt.feed||[]}:null,
     forced:g.forced?g.forced.id:-1,dbl:!!g.double,over:!!g.over,win:g.winners?g.winners.map(p=>p.id):[]
   }));
@@ -1376,7 +1399,7 @@ function applySnap(s){
   g.grave=(s.grave||[]).map(x=>({up:!!x.up,role:x.role||null}));
   g.vt=s.vt?{on:!!s.vt.on,votes:s.vt.votes||{},feed:s.vt.feed||[]}:null;
   g.forced=(s.forced>=0&&g.pl[s.forced])?g.pl[s.forced]:null;
-  g.double=!!s.dbl;
+  g.double=!!s.dbl;g.roster=s.roster||g.roster||null;
   $$('.coin').forEach(c=>c.classList.toggle('on',+c.dataset.p===s.phase));
   $('#phname').textContent=s.phtxt||'';
   g.pEnd=Date.now()+(s.rem||0);ensureTimer();if(g.reSoc)g.reSoc();
